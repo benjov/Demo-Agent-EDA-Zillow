@@ -1,86 +1,84 @@
 # Exploratory Data Analysis (EDA) Copilot App
 # -----------------------
-# streamlit run app.py
+
+#streamlit run app.py
 
 import os
-import sys
-import importlib
-import html
-from pathlib import Path
-
+from openai import OpenAI
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
+from pathlib import Path
+import html  
 from dotenv import load_dotenv
+load_dotenv()  # por defecto busca un archivo llamado ".env" en el directorio actual
 from langchain_community.chat_message_histories import StreamlitChatMessageHistory
 from langchain_openai import ChatOpenAI
 
-from ai_data_science_team.ds_agents import EDAToolsAgent
-from ai_data_science_team.utils.matplotlib import matplotlib_from_base64
-from ai_data_science_team.utils.plotly import plotly_from_dict
-
 # --- Compatibilidad LangChain v1 para librerías antiguas ---
+import sys, importlib
 try:
     sys.modules["langchain.prompts"] = importlib.import_module("langchain_core.prompts")
 except Exception:
     pass
 # -----------------------------------------------------------
 
+from ai_data_science_team.ds_agents import EDAToolsAgent
+from ai_data_science_team.ds_agents import EDAToolsAgent
+from ai_data_science_team.utils.matplotlib import matplotlib_from_base64
+from ai_data_science_team.utils.plotly import plotly_from_dict
+
 # =============================================================================
 # STREAMLIT APP SETUP (including data upload, API key, etc.)
 # =============================================================================
-
-# Carga .env (Streamlit no lo carga automáticamente)
-env_path = Path(__file__).resolve().parent / ".env"
-load_dotenv(dotenv_path=env_path)
-
+# * APP INPUTS ----
 openai_api_key = os.getenv("OPENAI_API_KEY")
+#openai_api_key = st.secrets["OPENAI_API_KEY"]
 
-# Si no hay key, detén la app con un mensaje claro
-if not openai_api_key:
-    st.error("No se encontró OPENAI_API_KEY. Revisa tu archivo .env (misma carpeta que app.py) o configura la variable de entorno.")
-    st.stop()
-
-# Modelos más recientes (puedes ajustar esta lista a lo que tengas habilitado en tu cuenta)
-# Nota: Mantengo un fallback con gpt-4o / gpt-4o-mini por compatibilidad.
-MODEL_LIST = [
-    "gpt-5-mini",
-    "gpt-5",
-#    "gpt-4o",
-#    "gpt-4o-mini",
-]
-
-TITLE = "Tu Copiloto de Análisis Explotarorio de Datos y en Elaboración de Reportes"
+MODEL_LIST = ['gpt-4o-mini', 'gpt-4o']
+TITLE = "Tu Copiloto de Análisis Explotarorio de Datos"
 st.set_page_config(page_title=TITLE, page_icon="📊")
 st.title("📊 " + TITLE)
 
-st.markdown(
-    """
-Bienvenido al Copiloto de Análisis de Propiedades. 
+st.markdown("""
+Bienvenido al Copiloto. 
 Este agente de IA está diseñado para ayudarte a analizar tus datos, y 
-proporcionar informes que pueden utilizarse para comprender los datos.
+proporcionar informes de análisis exploratorio que pueden utilizarse 
+para comprender los datos antes de realizar otros análisis 
+(por ejemplo, modelado, ingeniería de características, etc.).
 
 Los datos DEMO son un listado de propiedades target del proyecto IA Realty
-"""
-)
+""")
 
 with st.expander("Preguntas de Ejemplo", expanded=False):
     st.write(
         """
         - ¿Qué herramientas tienes disponibles? Devuelve una tabla.
-        - Dame información sobre la tool X.
+        - Dame información sobre la correlation funnel tool.
         - Explica el conjunto de datos.
         - ¿Qué contienen las primeras 5 filas?
         - Describe el conjunto de datos.
-        - Selecciona las propiedades con mayor potencial de Flipping.
+        - Analiza los datos faltantes en el conjunto de datos.
+        - Genera un correlation funnel. Usa la característica Churn como objetivo.
         """
     )
-
+#"""
+#        - Genera un informe de Sweetviz para el conjunto de datos. Usa la característica County como objetivo.
+#        - What tools do you have access to? Return a table.
+#        - Give me information on the correlation funnel tool.
+#        - Explain the dataset.
+#        - What do the first 5 rows contain?
+#        - Describe the dataset.
+#        - Analyze missing data in the dataset.
+#        - Generate a correlation funnel. Use the Churn feature as the target.
+#        - Generate a Sweetviz report for the dataset. Use the Churn feature as the target.
+#        """
 # Sidebar for file upload / demo data
-st.sidebar.image("images/Logo_AB.png", use_container_width=True)
-st.sidebar.markdown("Contact: vicente@analiticaboutique.com.mx & benjamin@analiticaboutique.com.mx")
-st.sidebar.header("Copiloto de Análisis de Propiedades", divider=True)
-use_demo_data = st.sidebar.checkbox("Usa datos demo", value=True)
+st.sidebar.image("images/Logo_AB.png", use_container_width=True)  # Ruta a la imagen
+st.sidebar.markdown("Contact: jesica.tapia@analiticaboutique.com.mx vicente@analiticaboutique.com.mx")
+st.sidebar.header("Copiloto: Data Upload/Selection", divider=True)
+st.sidebar.header("Upload Data (CSV or Excel)")
+use_demo_data = st.sidebar.checkbox("Usa datos demo", value=False)
 
 if "DATA_RAW" not in st.session_state:
     st.session_state["DATA_RAW"] = None
@@ -88,27 +86,33 @@ if "DATA_RAW" not in st.session_state:
 if use_demo_data:
     demo_file_path = Path("data/Prediction_LASSO_DEMO.xlsx")
     if demo_file_path.exists():
-        #df = pd.read_excel(demo_file_path)
-        df = pd.read_excel(demo_file_path, dtype={"parcelId": "string"})
-        file_name = "Zillow Miami Dataset"
+        df = pd.read_excel(demo_file_path)
+        file_name = "Zillow Miami"
         st.session_state["DATA_RAW"] = df.copy()
-        st.write(f"## Preview of top 10 {file_name} data:")
+        st.write(f"## Preview of top 10 of {file_name} data:")
         st.dataframe(st.session_state["DATA_RAW"].head(10))
     else:
         st.error(f"Demo data file not found at {demo_file_path}. Please ensure it exists.")
+else:
+    uploaded_file = st.sidebar.file_uploader("Upload CSV or Excel file", type=["csv", "xlsx"])
+    if uploaded_file:
+        if uploaded_file.name.endswith('.csv'):
+            df = pd.read_csv(uploaded_file)
+        elif uploaded_file.name.endswith('.xlsx'):
+            df = pd.read_excel(uploaded_file)
+        st.session_state["DATA_RAW"] = df.copy()
+        file_name = Path(uploaded_file.name).stem
+        st.write(f"## Preview of {file_name} data:")
+        st.dataframe(st.session_state["DATA_RAW"])
+    else:
+        st.info("Por favor, carga un archivo CSV o Excel o utiliza los datos demo para continuar.")
 
-# =============================================================================
-# OpenAI Model Selection (actualizado a modelos recientes)
-# =============================================================================
+# OpenAI API Key and Model Selection
 
 model_option = st.sidebar.selectbox("Choose OpenAI model", MODEL_LIST, index=0)
-
-# Si quieres forzar baja latencia / costo, puedes parametrizar temperature, max_tokens, etc.
-# Mantengo un set mínimo y compatible.
 OPENAI_LLM = ChatOpenAI(
     model=model_option,
-    api_key=openai_api_key,
-    #temperature=0.2,
+    api_key=openai_api_key
 )
 llm = OPENAI_LLM
 
@@ -227,37 +231,37 @@ def process_exploratory(question: str, llm, data: pd.DataFrame) -> dict:
     Processes any returned artifacts (plots, dataframes, etc.) and returns a result dict.
     """
     eda_agent = EDAToolsAgent(
-        llm,
+        llm, 
         invoke_react_agent_kwargs={"recursion_limit": 10},
     )
-
+    
     question += " Don't return hyperlinks to files in the response."
-
+    
     eda_agent.invoke_agent(
         user_instructions=question,
         data_raw=data,
     )
-
+    
     tool_calls = eda_agent.get_tool_calls()
     ai_message = eda_agent.get_ai_message(markdown=False)
     artifacts = eda_agent.get_artifacts(as_dataframe=False)
-
+    
     result = {
         "ai_message": ai_message,
         "tool_calls": tool_calls,
         "artifacts": artifacts
     }
-
+    
     if tool_calls:
         last_tool_call = tool_calls[-1]
         result["last_tool_call"] = last_tool_call
         tool_name = last_tool_call
-
+        
         print(f"Tool Name: {tool_name}")
-
+        
         if tool_name == "explain_data":
             result["explanation"] = ai_message
-
+            
         elif tool_name == "describe_dataset":
             if artifacts and isinstance(artifacts, dict) and "describe_df" in artifacts:
                 try:
@@ -265,19 +269,19 @@ def process_exploratory(question: str, llm, data: pd.DataFrame) -> dict:
                     result["describe_df"] = df
                 except Exception as e:
                     st.error(f"Error processing describe_dataset artifact: {e}")
-
+                    
         elif tool_name == "visualize_missing":
             if artifacts and isinstance(artifacts, dict):
                 try:
                     matrix_fig = matplotlib_from_base64(artifacts.get("matrix_plot"))
-                    bar_fig = matplotlib_from_base64(artifacts.get("bar_plot"))
-                    heatmap_fig = matplotlib_from_base64(artifacts.get("heatmap_plot"))
+                    bar_fig    = matplotlib_from_base64(artifacts.get("bar_plot"))
+                    heatmap_fig= matplotlib_from_base64(artifacts.get("heatmap_plot"))
                     result["matrix_plot_fig"] = matrix_fig[0]
                     result["bar_plot_fig"] = bar_fig[0]
                     result["heatmap_plot_fig"] = heatmap_fig[0]
                 except Exception as e:
                     st.error(f"Error processing visualize_missing artifact: {e}")
-
+                    
         elif tool_name == "correlation_funnel":
             if artifacts and isinstance(artifacts, dict):
                 if "correlation_data" in artifacts:
@@ -292,12 +296,12 @@ def process_exploratory(question: str, llm, data: pd.DataFrame) -> dict:
                         result["correlation_plotly"] = corr_plotly
                     except Exception as e:
                         st.error(f"Error processing correlation funnel Plotly figure: {e}")
-
+                    
         elif tool_name == "generate_sweetviz_report":
             if artifacts and isinstance(artifacts, dict):
                 result["report_file"] = artifacts.get("report_file")
                 result["report_html"] = artifacts.get("report_html")
-
+                
         else:
             if artifacts and isinstance(artifacts, dict):
                 if "plotly_figure" in artifacts:
@@ -320,100 +324,118 @@ def process_exploratory(question: str, llm, data: pd.DataFrame) -> dict:
                         st.error(f"Error converting artifact to dataframe: {e}")
     else:
         result["plain_response"] = ai_message
-
+        
     return result
+
+
 
 # =============================================================================
 # MAIN INTERACTION: GET USER QUESTION AND HANDLE RESPONSE
 # =============================================================================
 
 if st.session_state["DATA_RAW"] is not None:
+    # Use the built-in chat input widget
     question = st.chat_input("Enter your question here:", key="query_input")
     if question:
+        #if not st.session_state["OPENAI_API_KEY"]:
+        #    st.error("Please enter your OpenAI API Key to proceed.")
+        #    st.stop()
+    
         with st.spinner("Thinking..."):
+            # Add the user's question to the message history
             msgs.add_user_message(question)
             result = process_exploratory(
-                question,
-                llm,
+                question, 
+                llm, 
                 st.session_state["DATA_RAW"]
             )
-
-            tool_name = result.get("last_tool_call")
-
+            
+            tool_name = None
+            if "last_tool_call" in result:
+                tool_name = result["last_tool_call"]
+                
+            
+            # Append the AI response and (if available) tool usage info
             ai_msg = result.get("ai_message", "")
             if tool_name:
                 ai_msg += f"\n\n*Tool Used: {tool_name}*"
-
+                
             msgs.add_ai_message(ai_msg)
-
+            
+            # Build an artifact list to attach to the latest AI message
             artifact_list = []
-            if tool_name == "describe_dataset" and "describe_df" in result:
-                artifact_list.append({
-                    "title": "Dataset Description",
-                    "render_type": "dataframe",
-                    "data": result["describe_df"]
-                })
-            elif tool_name == "visualize_missing":
-                if "matrix_plot_fig" in result:
+            if "last_tool_call" in result:
+                tool_name = result["last_tool_call"]
+                if tool_name == "describe_dataset":
+                    if "describe_df" in result:
+                        artifact_list.append({
+                            "title": "Dataset Description",
+                            "render_type": "dataframe",
+                            "data": result["describe_df"]
+                        })
+                elif tool_name == "visualize_missing":
+                    if "matrix_plot_fig" in result:
+                        artifact_list.append({
+                            "title": "Missing Data Matrix",
+                            "render_type": "matplotlib",
+                            "data": result["matrix_plot_fig"]
+                        })
+                    if "bar_plot_fig" in result:
+                        artifact_list.append({
+                            "title": "Missing Data Bar Plot",
+                            "render_type": "matplotlib",
+                            "data": result["bar_plot_fig"]
+                        })
+                    if "heatmap_plot_fig" in result:
+                        artifact_list.append({
+                            "title": "Missing Data Heatmap",
+                            "render_type": "matplotlib",
+                            "data": result["heatmap_plot_fig"]
+                        })
+                elif tool_name == "correlation_funnel":
+                    if "correlation_data" in result:
+                        artifact_list.append({
+                            "title": "Correlation Data",
+                            "render_type": "dataframe",
+                            "data": result["correlation_data"]
+                        })
+                    if "correlation_plotly" in result:
+                        artifact_list.append({
+                            "title": "Correlation Funnel (Interactive Plotly)",
+                            "render_type": "plotly",
+                            "data": result["correlation_plotly"]
+                        })
+                elif tool_name == "generate_sweetviz_report":
                     artifact_list.append({
-                        "title": "Missing Data Matrix",
-                        "render_type": "matplotlib",
-                        "data": result["matrix_plot_fig"]
+                        "title": "Sweetviz Report",
+                        "render_type": "sweetviz",
+                        "data": {"report_file": result.get("report_file"), "report_html": result.get("report_html")}
                     })
-                if "bar_plot_fig" in result:
-                    artifact_list.append({
-                        "title": "Missing Data Bar Plot",
-                        "render_type": "matplotlib",
-                        "data": result["bar_plot_fig"]
-                    })
-                if "heatmap_plot_fig" in result:
-                    artifact_list.append({
-                        "title": "Missing Data Heatmap",
-                        "render_type": "matplotlib",
-                        "data": result["heatmap_plot_fig"]
-                    })
-            elif tool_name == "correlation_funnel":
-                if "correlation_data" in result:
-                    artifact_list.append({
-                        "title": "Correlation Data",
-                        "render_type": "dataframe",
-                        "data": result["correlation_data"]
-                    })
-                if "correlation_plotly" in result:
-                    artifact_list.append({
-                        "title": "Correlation Funnel (Interactive Plotly)",
-                        "render_type": "plotly",
-                        "data": result["correlation_plotly"]
-                    })
-            elif tool_name == "generate_sweetviz_report":
-                artifact_list.append({
-                    "title": "Sweetviz Report",
-                    "render_type": "sweetviz",
-                    "data": {"report_file": result.get("report_file"), "report_html": result.get("report_html")}
-                })
-            else:
-                if "plotly_fig" in result:
-                    artifact_list.append({
-                        "title": "Plotly Figure",
-                        "render_type": "plotly",
-                        "data": result["plotly_fig"]
-                    })
-                if "matplotlib_fig" in result:
-                    artifact_list.append({
-                        "title": "Matplotlib Figure",
-                        "render_type": "matplotlib",
-                        "data": result["matplotlib_fig"]
-                    })
-                if "dataframe" in result:
-                    artifact_list.append({
-                        "title": "Dataframe",
-                        "render_type": "dataframe",
-                        "data": result["dataframe"]
-                    })
-
+                else:
+                    if "plotly_fig" in result:
+                        artifact_list.append({
+                            "title": "Plotly Figure",
+                            "render_type": "plotly",
+                            "data": result["plotly_fig"]
+                        })
+                    if "matplotlib_fig" in result:
+                        artifact_list.append({
+                            "title": "Matplotlib Figure",
+                            "render_type": "matplotlib",
+                            "data": result["matplotlib_fig"]
+                        })
+                    if "dataframe" in result:
+                        artifact_list.append({
+                            "title": "Dataframe",
+                            "render_type": "dataframe",
+                            "data": result["dataframe"]
+                        })
+            
+            # Attach artifacts to the most recent AI message (so they show immediately)
             if artifact_list:
                 msg_index = len(msgs.messages) - 1
                 st.session_state["chat_artifacts"][msg_index] = artifact_list
+
 
 # =============================================================================
 # FINAL RENDER: DISPLAY THE COMPLETE CHAT HISTORY WITH ARTIFACTS
